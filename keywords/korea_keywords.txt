@@ -1,0 +1,13 @@
+# 한국 관련 유출 후보 판별용 키워드 목록 (요구사항 5, collectors/content_sample.py 가 사용).
+# 한 줄에 하나씩. 확정/최종 목록이 아니며 M3에서 팀 확정 후 갱신한다 (CLAUDE.md §11 미확정 사항 상당).
+#
+# 이 목록으로 잡힌 결과는 항상 "후보"이며 자동 확정하지 않는다 (CLAUDE.md §1 핵심 안전장치).
+
+leak
+leaked
+database
+db dump
+.kr
+korea
+korean
+combo list

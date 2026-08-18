@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: ruff check
+        run: ruff check .
+
+      - name: pytest
+        # collectors/*.py 는 TYPE_CHECKING 아래서만 playwright 를 참조하므로
+        # 브라우저 바이너리 설치 없이 순수 로직(report_generator, cross_reference,
+        # user_activity 등) 테스트가 가능하다.
+        run: pytest -q
+
+      - name: docker build (검증만, push 안 함)
+        run: docker build -t darkweb-crawler:ci .

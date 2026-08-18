@@ -1,0 +1,18 @@
+# 경로별 리뷰 자동 라우팅. @OWNER 를 실제 GitHub 사용자/팀으로 교체하세요.
+# CLAUDE.md §8: 아래 경로들은 코드 리뷰로만 막을 수 있는 안전장치를 담고 있어 특히 주의합니다.
+
+# §7.2 "절대 자동 채움 금지 필드" 로직
+/report_generator.py           @OWNER
+
+# 브라우저 샌드박스 규칙(§4.2-1), Tor 바인딩(§4.2-3)
+/Dockerfile                    @OWNER
+/config.py                     @OWNER
+
+# 능동적 행위(가입 제출·파일 다운로드) 금지(§3-2, §3-5)를 지켜야 하는 Collector 전체
+/collectors/                   @OWNER
+
+# 승인된 대상 목록 스키마
+/whitelist.example.yaml        @OWNER
+
+# CI/보안 파이프라인 자체
+/.github/workflows/            @OWNER

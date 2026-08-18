@@ -1,0 +1,13 @@
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+# E/F: 기본 pycodestyle·pyflakes. S: flake8-bandit(보안) — budgeats-sg backend와 동일하게
+# 이 프로젝트도 보안 실수를 린트 단계에서 잡는 걸 우선한다 (CLAUDE.md §8).
+# DTZ(datetime tz-aware 강제)는 의도적으로 빼둔다: observed_at 은 사람이 읽는 "관찰 날짜"이며
+# 스케줄링에 쓰지 않으므로, 타임존 인식을 강제하는 이득보다 코드가 장황해지는 비용이 크다.
+select = ["E", "F", "S", "UP", "BLE"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]  # pytest assert 사용

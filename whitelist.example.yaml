@@ -1,0 +1,14 @@
+# whitelist.yaml 템플릿. 이 파일(whitelist.example.yaml)만 커밋한다.
+# 실제 승인 대상이 담긴 whitelist.yaml 은 .gitignore 되어 있다 (CLAUDE.md §3-1).
+#
+# 로드맵 M0: "승인된 대상 1곳을 whitelist.yaml에 등록 — 최소 필드:
+# name, url, source_type, approved_by, approved_at"
+
+sites:
+  - name: "example-forum"
+    url: "http://exampleexampleexampleexampleexampleexampleexampleexamp.onion"
+    source_type: "forum"          # forum / marketplace / dls / paste 중 하나
+    approved_by: "담당자 이름"
+    approved_at: "2026-08-18"
+    requires_login: true          # session_manager.py 가 참조
+    notes: "리서치 계정으로 최초 로그인 완료, 세션 파일: sessions/example-forum.json"

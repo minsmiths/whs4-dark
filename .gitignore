@@ -1,0 +1,31 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# --- 프로젝트 런타임 산출물 (CLAUDE.md §4.1 — 컨테이너 밖으로 자동 반출 금지) ---
+# sessions/, snapshots/ 는 named volume 대상. 디렉터리 구조만 유지하고 내용물은 커밋하지 않는다.
+sessions/*
+!sessions/.gitkeep
+snapshots/*
+!snapshots/.gitkeep
+
+# output/ 은 호스트에 bind mount되는 유일한 폴더지만, 실제 조사 결과(MD)는
+# 대상 사이트 정보를 담고 있으므로 기본적으로 커밋하지 않는다.
+output/*
+!output/.gitkeep
+
+# --- 민감 정보 ---
+whitelist.yaml          # 실제 승인 대상 URL. whitelist.example.yaml만 커밋한다.
+run_log.json
+.env
+.env.local
+
+# --- OS / 편집기 ---
+.DS_Store
+.vscode/
+.idea/
