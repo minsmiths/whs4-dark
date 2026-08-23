@@ -14,13 +14,21 @@ sessions/*
 snapshots/*
 !snapshots/.gitkeep
 
+# docker volume(darkweb-snapshots)에서 선택자 확인용으로 꺼내본 임시 폴더. 실제 대상 사이트
+# 원문(게시글, 유저명 등)이 그대로 담겨있으므로 절대 커밋하지 않는다 — 확인 끝나면 지운다.
+tmp_snapshots/
+
 # output/ 은 호스트에 bind mount되는 유일한 폴더지만, 실제 조사 결과(MD)는
 # 대상 사이트 정보를 담고 있으므로 기본적으로 커밋하지 않는다.
 output/*
 !output/.gitkeep
 
 # --- 민감 정보 ---
-whitelist.yaml          # 실제 승인 대상 URL. whitelist.example.yaml만 커밋한다.
+# 주의: .gitignore는 줄 맨 앞의 #만 주석으로 인식한다(뒤에 붙이는 인라인 주석 지원 안 함).
+# 아래처럼 패턴만 단독으로 한 줄에 둬야 한다 — 예전엔 "whitelist.yaml # 설명"처럼 같은 줄에
+# 주석을 붙여놔서 패턴 문자열 자체가 달라져 전혀 무시되지 않고 있었다(실제 커밋된 적은 없음).
+# 실제 승인 대상 URL. whitelist.example.yaml만 커밋한다.
+whitelist.yaml
 run_log.json
 .env
 .env.local

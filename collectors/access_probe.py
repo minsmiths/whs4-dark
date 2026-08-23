@@ -42,13 +42,16 @@ def run(page: Page, source: dict[str, Any]) -> dict[str, Any]:
         if name:
             field_names.append(name)
 
+    # 주의: 결과 키는 "들어가는 법"이 아니라 "_들어가는_법_가입폼"이다. structure.py의
+    # 규칙 페이지 원문과 마찬가지로 AUTO-append 소유이므로, investigate.py가 두 Collector의
+    # 결과를 하나로 합쳐 "들어가는 법"으로 만든다(한쪽이 다른 쪽을 덮어쓰지 않도록).
     if field_names:
-        result["들어가는 법"] = {
+        result["_들어가는_법_가입폼"] = {
             "value": f"요구 필드: {', '.join(dict.fromkeys(field_names))}",
             "observed_at": today,
             "source": "가입 페이지 입력 필드 (제출하지 않음)",
         }
     else:
-        result["들어가는 법"] = {"state": "BLOCKED", "reason": "가입 폼 필드 파싱 실패"}
+        result["_들어가는_법_가입폼"] = {"state": "BLOCKED", "reason": "가입 폼 필드 파싱 실패"}
 
     return result

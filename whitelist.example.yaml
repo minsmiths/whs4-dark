@@ -11,4 +11,14 @@ sites:
     approved_by: "담당자 이름"
     approved_at: "2026-08-18"
     requires_login: true          # session_manager.py 가 참조
+    logged_in_selector: ""        # 선택. 로그인 후에만 보이는 CSS selector(예: "#mypage-link").
+                                   # 비워두면 investigate.py가 세션 유효성 자동 확인을 건너뛴다.
+                                   # 대상 사이트 실제 마크업 확인 후 채운다 (SRS.md §6 미확정 사항, M2).
+    platform: ""                  # 선택. site_profiles.py에 등록된 플랫폼 키(예: "mybb-knox").
+                                   # 등록해두면 collectors/*.py가 범용 추측 선택자 대신 그 값을 쓴다.
+                                   # 비워두면 기존처럼 범용 선택자를 쓴다.
+    sample_list_url: ""           # 선택. 게시글이 실제로 나열되는 목록 페이지 URL(홈페이지는
+                                   # 보통 카테고리만 있고 게시글이 없어서 필요). 비워두면
+                                   # stats/content_sample이 현재 페이지(보통 홈페이지)에서 시도하고,
+                                   # 게시글이 없으면 관련 필드가 BLOCKED로 나온다.
     notes: "리서치 계정으로 최초 로그인 완료, 세션 파일: sessions/example-forum.json"

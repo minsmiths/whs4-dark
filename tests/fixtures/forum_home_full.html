@@ -1,0 +1,40 @@
+<!--
+    구조를 흉내 낸 샘플 포럼 홈페이지 fixture (통합 테스트용). 실제 대상 사이트의 원문이 아니다.
+    nav + 규칙 페이지 링크 + 게시글 목록 + 페이지네이션을 한 페이지에 모아 investigate.py의
+    run_pipeline() 전체(①~⑦)를 로컬 fixture만으로 검증하는 데 쓴다.
+-->
+<html lang="ko">
+<head><title>Sample Forum (full)</title></head>
+<body>
+  <nav>
+    <a href="/categories/general">General Discussion</a>
+    <a href="/categories/market">Market</a>
+    <a href="forum_rules.html">Rules &amp; FAQ</a>
+  </nav>
+  <form action="/register" method="post">
+    <input type="text" name="username" placeholder="아이디" />
+    <input type="password" name="password" placeholder="비밀번호" />
+  </form>
+  <div class="thread-list">
+    <div class="thread">
+      <span class="title">Leaked korea database dump</span>
+      <span class="author">Max987</span>
+      <time datetime="2026-08-15">2026-08-15</time>
+    </div>
+    <div class="thread">
+      <span class="title">Selling stolen accounts, contact t.me/adminsample</span>
+      <span class="author">otherUser</span>
+      <time datetime="2026-08-10">2026-08-10</time>
+    </div>
+    <div class="thread">
+      <span class="title">Hello world general chat</span>
+      <span class="author">Max987</span>
+      <time datetime="2026-08-01">2026-08-01</time>
+    </div>
+  </div>
+  <ul class="pagination">
+    <li><a href="?page=1">1</a></li>
+    <li><a href="?page=7">7</a></li>
+  </ul>
+</body>
+</html>

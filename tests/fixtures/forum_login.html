@@ -1,0 +1,16 @@
+<!--
+    구조를 흉내 낸 샘플 로그인/가입 페이지 fixture. 실제 대상 사이트의 원문이 아니다.
+    collectors/access_probe.py 테스트용 — 입력 필드 목록만 수집하고 절대 제출하지 않는지 검증.
+-->
+<html lang="ko">
+<head><title>Sample Login</title></head>
+<body>
+  <form action="/register" method="post">
+    <input type="text" name="username" placeholder="아이디" />
+    <input type="email" name="email" placeholder="이메일" />
+    <input type="password" name="password" placeholder="비밀번호" />
+    <input type="text" name="invite_code" placeholder="초대 코드" />
+    <button type="submit">가입하기</button>
+  </form>
+</body>
+</html>

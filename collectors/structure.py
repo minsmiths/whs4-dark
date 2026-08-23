@@ -13,6 +13,11 @@ from __future__ import annotations
 import datetime as dt
 import logging
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urljoin
+
+import config
+import site_profiles
+import snapshot
 
 if TYPE_CHECKING:
     from playwright.sync_api import Page
@@ -20,33 +25,61 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # TODO(M2): 실제 대상 사이트 마크업 확인 후 확정. 지금은 흔한 포럼 구조에 대한 추측값.
+# whitelist.yaml에 platform이 지정돼 있고 site_profiles.py에 프로파일이 등록돼 있으면
+# 아래 기본값 대신 그 값을 쓴다 (site_profiles.py 참고).
 NAV_LINK_SELECTOR = "nav a, .forumbit a"
 RULES_PAGE_KEYWORDS = ("rules", "faq", "register", "가입", "규칙")
+
+
+def _source_id(source: dict[str, Any]) -> str:
+    return source.get("name") or source.get("url", "unknown")
 
 
 def run(page: Page, source: dict[str, Any]) -> dict[str, Any]:
     today = dt.date.today().isoformat()
     result: dict[str, Any] = {}
+    profile = site_profiles.get_profile(source)
+    nav_selector = profile.get("nav_link_selector", NAV_LINK_SELECTOR)
+    # 규칙/FAQ 링크는 카테고리 목록과 다른 위치(예: 사이트 상단 메뉴)에 있는 경우가 많다
+    # (darkforums.ru 사례: 진짜 카테고리는 `.forums__forum-name`, 규칙 링크는 `.sidenav__menu`
+    # 안에 있었다). 프로파일에 따로 없으면 기존처럼 nav_selector와 같은 곳에서 찾는다.
+    rules_link_selector = profile.get("rules_link_selector", nav_selector)
 
     try:
-        links = page.locator(NAV_LINK_SELECTOR).all()
+        links = page.locator(nav_selector).all()
     except Exception:  # noqa: BLE001
         result["어떤 곳인지"] = {"state": "BLOCKED", "reason": "nav selector 매칭 실패"}
         return result
 
     categories = []
-    rules_candidates = []
     for link in links:
         try:
             text = (link.inner_text() or "").strip()
-            href = link.get_attribute("href") or ""
         except Exception:  # noqa: BLE001 - 개별 요소 stale 등
             logger.debug("nav 링크 파싱 실패, 건너뜀", exc_info=True)
             continue
         if not text:
             continue
+        # 계정/알림 메뉴로 보이는 텍스트는 "어떤 곳인지"(진짜 카테고리)에서 걸러낸다.
+        # nav_selector가 범용이라(예: nav 안의 모든 링크) 로그인 후 메뉴까지 같이 잡히는
+        # 경우가 흔해서 두는 휴리스틱이다.
+        if any(kw in text.lower() for kw in config.NAV_ACCOUNT_MENU_KEYWORDS):
+            continue
         categories.append(text)
-        if any(kw in text.lower() or kw in href.lower() for kw in RULES_PAGE_KEYWORDS):
+
+    rules_candidates = []
+    try:
+        rule_links = page.locator(rules_link_selector).all()
+    except Exception:  # noqa: BLE001
+        rule_links = []
+    for link in rule_links:
+        try:
+            text = (link.inner_text() or "").strip()
+            href = link.get_attribute("href") or ""
+        except Exception:  # noqa: BLE001 - 개별 요소 stale 등
+            logger.debug("규칙 링크 파싱 실패, 건너뜀", exc_info=True)
+            continue
+        if text and any(kw in text.lower() or kw in href.lower() for kw in RULES_PAGE_KEYWORDS):
             rules_candidates.append((text, href))
 
     if categories:
@@ -59,10 +92,34 @@ def run(page: Page, source: dict[str, Any]) -> dict[str, Any]:
         result["어떤 곳인지"] = {"state": "CONFIRMED_ABSENT"}
 
     # 규칙/FAQ/가입 페이지 원문 인용 (요약하지 않음, CLAUDE.md §6 요구사항 6)
+    # 주의: 결과 키는 "들어가는 법"이 아니라 "_들어가는_법_구조"다. 이 필드는
+    # AUTO-append 소유(access_probe.py 도 같은 목적의 값을 채운다) — investigate.py가
+    # 두 Collector의 결과를 하나로 합쳐 "들어가는 법"으로 만든다(덮어쓰기 방지).
     if rules_candidates:
-        # TODO(M2): href로 이동해 본문 원문(page.inner_text('body'))을 요약 없이 그대로 수집한다.
-        result["들어가는 법"] = {"state": "BLOCKED", "reason": "규칙 페이지 원문 수집 미구현"}
+        text, href = rules_candidates[0]
+        origin_url = page.url
+        target_url = urljoin(origin_url, href)
+        content_selector = profile.get("rules_content_selector", "body")
+        try:
+            page.goto(target_url, timeout=config.PAGE_LOAD_TIMEOUT_MS)
+            body_text = page.inner_text(content_selector).strip()
+            snapshot.save_snapshot(page, _source_id(source), "structure_rules_page")
+            if len(body_text) > config.RULES_TEXT_MAX_CHARS:
+                body_text = body_text[: config.RULES_TEXT_MAX_CHARS] + " …(이하 생략, 스냅샷 참고)"
+            result["_들어가는_법_구조"] = {
+                "value": body_text,
+                "observed_at": today,
+                "source": f'규칙/FAQ 페이지 원문 그대로 인용 ("{text}", {target_url})',
+            }
+        except Exception:  # noqa: BLE001 - 규칙 페이지 접속 실패 전반
+            logger.debug("규칙 페이지 원문 수집 실패", exc_info=True)
+            result["_들어가는_법_구조"] = {"state": "BLOCKED", "reason": "규칙 페이지 접속 실패"}
+        finally:
+            try:
+                page.goto(origin_url, timeout=config.PAGE_LOAD_TIMEOUT_MS)
+            except Exception:  # noqa: BLE001 - 원래 페이지 복귀 실패해도 파이프라인은 계속
+                logger.warning("규칙 페이지 조회 후 원래 페이지로 복귀 실패: %s", origin_url)
     else:
-        result["들어가는 법"] = {"state": "CONFIRMED_ABSENT"}
+        result["_들어가는_법_구조"] = {"state": "CONFIRMED_ABSENT"}
 
     return result

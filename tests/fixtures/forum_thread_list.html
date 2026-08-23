@@ -1,0 +1,42 @@
+<!--
+    구조를 흉내 낸 샘플 게시글 목록 fixture. 실제 대상 사이트의 원문이 아니다.
+    collectors/stats.py, collectors/content_sample.py 테스트용.
+    (제목 속 이메일/전화번호는 PII 탐지 로직 검증을 위한 가짜 예시이며 실존 정보가 아니다.)
+-->
+<html lang="ko">
+<head><title>Sample Thread List</title></head>
+<body>
+  <div class="thread-list">
+    <div class="thread">
+      <span class="title">Leaked korea database dump</span>
+      <span class="author">Max987</span>
+      <time datetime="2026-08-15">2026-08-15</time>
+    </div>
+    <div class="thread">
+      <span class="title">Selling stolen accounts</span>
+      <span class="author">otherUser</span>
+      <time datetime="2026-08-10">2026-08-10</time>
+    </div>
+    <div class="thread">
+      <span class="title">Contact me at test@example.com for details</span>
+      <span class="author">Max987</span>
+      <time datetime="2026-08-01">2026-08-01</time>
+    </div>
+    <div class="thread">
+      <span class="title">전화 문의 010-1234-5678</span>
+      <span class="author">thirdUser</span>
+      <time datetime="2026-07-20">2026-07-20</time>
+    </div>
+    <div class="thread">
+      <span class="title">Hello world general chat</span>
+      <span class="author">otherUser</span>
+      <time datetime="2026-07-15">2026-07-15</time>
+    </div>
+  </div>
+  <ul class="pagination">
+    <li><a href="?page=1">1</a></li>
+    <li><a href="?page=2">2</a></li>
+    <li><a href="?page=42">42</a></li>
+  </ul>
+</body>
+</html>
