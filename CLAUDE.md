@@ -8,6 +8,11 @@
 PR/배포 전 체크리스트는 [docs/security-checklist.md](docs/security-checklist.md), 보안 위협 대응표는
 [docs/threat-model.md](docs/threat-model.md)로 분리되어 있습니다.
 
+**작업을 새로 시작하는 AI는 먼저 [progress-log/](progress-log/) 안의 가장 최근 날짜 파일을 읽으세요.**
+현재 어디까지 됐는지, 뭐가 절반만 됐는지, 다음에 정확히 뭘 해야 하는지, 이미 겪은 함정이 뭔지가
+영어로 정리돼 있습니다(이 파일과 development-plan.md가 규칙의 원본이고, progress-log는 그 위에 얹힌
+현재 상태 스냅샷입니다 — 상태 사실이 아니라 규칙이 충돌하면 이 파일이 우선합니다).
+
 ---
 
 ## 1. 배경 및 목적
