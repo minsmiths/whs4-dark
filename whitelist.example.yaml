@@ -22,3 +22,7 @@ sites:
                                    # stats/content_sample이 현재 페이지(보통 홈페이지)에서 시도하고,
                                    # 게시글이 없으면 관련 필드가 BLOCKED로 나온다.
     notes: "리서치 계정으로 최초 로그인 완료, 세션 파일: sessions/example-forum.json"
+    clear_url: ""                  # 선택. 클리어넷 미러 주소(사람이 직접 확인한 값만 적는다).
+                                   # profile_report_generator.py의 "클리어 주소" 칸에 그대로
+                                   # 노출되며 "whitelist.yaml 등록값 — 크롤로 직접 검증한 값 아님"
+                                   # 표시가 같이 붙는다. 비워두면 "안 봄".

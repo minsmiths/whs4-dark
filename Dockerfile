@@ -31,4 +31,6 @@ EXPOSE 5900
 # 로그인이 필요한 대상을 처음 등록할 때는 이 CMD 대신 VNC 로그인 진입점을 명시적으로 실행한다:
 #   docker run --rm -p 127.0.0.1:5900:5900 -e VNC_PASSWORD=... <image> \
 #       ./docker/login.sh <whitelist.yaml 의 name 또는 url>
-CMD service tor start && ./docker/wait-for-tor.sh && python investigate.py "$TARGET_URL" --type "$SOURCE_TYPE"
+# RESUME=1이면 --resume을 붙인다 (세션 만료/챌린지로 중단된 사이트 전체 헤드라인 순회를
+# 체크포인트부터 이어서 진행 — docker/run-crawl.ps1 -Resume 이 이 값을 넘긴다).
+CMD service tor start && ./docker/wait-for-tor.sh && python investigate.py "$TARGET_URL" --type "$SOURCE_TYPE" ${RESUME:+--resume}

@@ -145,6 +145,15 @@ def generate_markdown(source: dict[str, Any], collector_results: dict[str, dict[
             lines.append(f"- {label}: {_format_tristate(entry)}")
         lines.append("- 사람 보완: (빈칸, 필요 시 직접 작성)")
 
+    # content_sample.crawl_site()가 실제로 어느 카테고리·몇 페이지를 돌았는지 URL로 남긴다
+    # (§ 사용자 요청, 2026-08-24) — "이번엔 어디까지 실제로 긁었는지" 사람이 MD만 보고도
+    # 감사(audit)할 수 있게. sample_list_url/run() 단일 페이지 경로에서는 이 키 자체가 없다.
+    crawled_urls = collector_results.get("_사이트맵_방문_URL", [])
+    if crawled_urls:
+        lines += ["", "## 내부 참고자료 — 크롤링한 페이지 목록 (게시 금지, 노션에 옮기지 않음)"]
+        for entry in crawled_urls:
+            lines.append(f"- {entry.get('category', '?')} p{entry.get('page', '?')}: {entry.get('url', '')}")
+
     return "\n".join(lines) + "\n"
 
 

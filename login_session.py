@@ -72,7 +72,11 @@ def main(argv: list[str] | None = None) -> int:
             context = browser.new_context()
             page = context.new_page()
             try:
-                page.goto(target_url, timeout=config.LOGIN_PAGE_LOAD_TIMEOUT_MS)
+                page.goto(
+                    target_url,
+                    timeout=config.LOGIN_PAGE_LOAD_TIMEOUT_MS,
+                    wait_until=config.PAGE_WAIT_UNTIL,
+                )
             except PlaywrightError:
                 # .onion 히든서비스는 회선 구성이 느려 첫 시도가 자주 타임아웃된다. 여기서
                 # 죽지 않는다 — VNC 화면은 계속 떠 있으니 사람이 직접 새로고침/재시도하면 된다.

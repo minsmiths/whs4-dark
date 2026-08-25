@@ -27,6 +27,8 @@ from typing import Any
 #   post_title_selector / post_author_selector / post_date_selector
 #   stats_area_selector              stats.py: 통계 영역
 #   pagination_last_selector         stats.py: 페이지네이션 마지막 페이지 링크
+#   pagination_next_selector         content_sample.py crawl_site(): "다음 페이지" 링크
+#                                    (카테고리당 최대 config.SITE_MAP_MAX_PAGES_PER_CATEGORY까지)
 #   latest_post_timestamp_selector   stats.py: 목록 최상단 게시글 시각
 PROFILES: dict[str, dict[str, str]] = {
     # 2026-08-19, 실제 크롤링에서 저장된 snapshot(tmp_snapshots/darkforums/...)을 사람이
@@ -47,8 +49,25 @@ PROFILES: dict[str, dict[str, str]] = {
         # 각 서브포럼 행의 "최근 게시글" 칸. 화면엔 "2 hours ago"(상대 시간)로 보이지만
         # title 속성에 절대 시각("19-08-26, 08:29 PM")이 들어있다 — stats.py가 그 순서로 본다.
         "latest_post_timestamp_selector": ".forums__last-post span[title]",
-        # TODO: 아직 게시글 목록(스레드 리스트) 페이지 snapshot이 없어서 미확정. sample_list_url을
-        # whitelist.yaml에 넣고 한 번 더 크롤링한 뒤 post_row_selector 등을 채운다.
+        # 2026-08-23, crawl_site()가 처음 방문한 카테고리(Announcements) 스냅샷
+        # (snapshots/darkforums/.../sitemap_first_category.html)을 사람이 직접 확인해서 채움.
+        # 게시글 행 하나 = <tr class="inline_row">...</tr> (MyBB 표준 클래스, 체크박스로 선택
+        # 가능한 스레드 행에 항상 붙는다 — 서브포럼 안내/구분선 <tr>과는 구분됨).
+        "post_row_selector": "tr.inline_row",
+        # 제목 <span id="tid_123" class=" subject_old">(또는 subject_new, 안 읽음 여부에 따라
+        # 클래스가 갈림) 안의 <a>. id 접두어(tid_ = thread id)로 잡으면 읽음 상태 클래스 차이에
+        # 상관없이 항상 매칭된다.
+        "post_title_selector": '[id^="tid_"] a',
+        # 범용 기본값(".author")과 우연히 같다 — 명시적으로 남겨둔다(다른 스킨으로 바뀌어도
+        # 여기부터 고치면 되도록).
+        "post_author_selector": ".author",
+        # datetime 속성이 없다(darkforums Knox 테마) — collect_posts()가 title 속성 → 화면 텍스트
+        # 순으로 폴백한다. 이 칸은 절대 시각 텍스트라 폴백해도 §7.1(상대 시간 금지)에 안 걸린다.
+        "post_date_selector": ".forum-display__thread-date",
+        # pagination_next_selector는 일부러 안 채운다 — darkforums(Knox 테마)는 "다음" 화살표가
+        # 없고 페이지 번호(1 2 3 ...)만 나열돼 있어서, content_sample.py의 범용 폴백
+        # (_find_next_page_href, 2026-08-24 도입)이 알아서 처리한다. 이 프로젝트는 darkforums
+        # 전용 도구가 아니라서 이런 selector는 정말 필요할 때만(범용 폴백도 안 맞을 때) 채운다.
     },
 }
 

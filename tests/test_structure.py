@@ -52,6 +52,25 @@ def test_run_collects_nav_categories_and_rules_text(tmp_path, monkeypatch, brows
     context.close()
 
 
+def test_run_strips_pm_notice_noise_from_rules_text(tmp_path, monkeypatch, browser):
+    """실사고 회귀 테스트(2026-08-25): myBB 쪽지함 알림 배너("You have N unread private
+    messages...")가 규칙 페이지 본문(rules_content_selector, 보통 #content) 안에 같이
+    렌더링돼서 "들어가는 법" 칸 맨 앞에 그대로 섞여 나온 걸 사람 리뷰로 발견했다. 이건 그
+    순간 로그인한 계정의 사적 알림이지 "규칙 원문"이 아니다.
+    """
+    monkeypatch.setattr(config, "SNAPSHOTS_DIR", str(tmp_path))
+    context, page = _open(browser, "forum_home_pm_notice.html")
+
+    result = structure.run(page, source={"name": "example-forum", "url": page.url})
+
+    rules_text = result["_들어가는_법_구조"]["value"]
+    assert "unread private messages" not in rules_text
+    assert "Asaryumor" not in rules_text
+    assert "가입은 초대 코드" in rules_text  # 진짜 규칙 본문은 그대로 남는다
+
+    context.close()
+
+
 def test_run_saves_rules_page_snapshot(tmp_path, monkeypatch, browser):
     monkeypatch.setattr(config, "SNAPSHOTS_DIR", str(tmp_path))
     context, page = _open(browser, "forum_home.html")

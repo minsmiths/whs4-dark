@@ -1,0 +1,32 @@
+<!--
+    forum_thread_list.html의 2페이지째. 2026-08-24 pagination 범용 폴백
+    (content_sample._find_next_page_href) 도입 후, investigate.py 전체 파이프라인
+    E2E 테스트(test_investigate_pipeline.py)가 "다음 페이지"를 실제로 따라가는지도
+    검증하게 됐다 — 이전엔 ?page=2 링크(파일 자체를 그대로 다시 가리켜 file://에서는
+    1페이지와 내용이 완전히 같았음)라 페이지네이션을 안 따라가던 구버전 selector에서는
+    문제가 안 됐지만, 폴백이 그 링크를 실제로 클릭하게 되면서 1페이지 글이 중복 집계되는
+    문제가 드러났다. 그래서 2페이지째는 진짜 다른 파일 + 다른 게시글로 분리한다(한국 관련
+    유출 키워드는 안 넣어서 기존 "후보 1건" 기대값을 그대로 유지한다).
+-->
+<html lang="ko">
+<head><title>Sample Thread List - page 2</title></head>
+<body>
+  <div class="thread-list">
+    <div class="thread">
+      <span class="title">Selling VPN service accounts</span>
+      <span class="author">Max987</span>
+      <time datetime="2026-08-16">2026-08-16</time>
+    </div>
+    <div class="thread">
+      <span class="title">Just chatting, off topic today</span>
+      <span class="author">otherUser</span>
+      <time datetime="2026-08-17">2026-08-17</time>
+    </div>
+  </div>
+  <ul class="pagination">
+    <li><a href="forum_thread_list.html">1</a></li>
+    <li><a href="forum_thread_list_p2.html">2</a></li>
+    <li><a href="?page=42">42</a></li>
+  </ul>
+</body>
+</html>

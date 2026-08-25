@@ -64,10 +64,19 @@
 1. 카테고리별 상위 N건(기본 50) 제목/날짜/작성자 수집 (`langdetect` 등 추가)
 2. 언어감지 후 비중 집계 → `사용 언어`
 3. 한국 관련 키워드 매칭 카운트 → `한국 관련 유출` 후보
-4. 결과에 항상 "표본 N건 기준" 명시
+4. 결과에 항상 표본 규모 명시(전체 아님)
 
 **산출물**: `stats.py`, `content_sample.py`, `keywords/korea_keywords.txt`
 **완료 기준**: `규모`, `상태`(신선도), `사용 언어`, `한국 관련 유출`(후보) 필드가 값 또는 tri-state로 채워짐. 표본 50건 미만에서도 에러 없이 동작.
+
+**확장 (2026-08-23)**: `content_sample.crawl_site()` — 홈페이지에서 발견한 모든 카테고리(하위
+서브포럼 포함)를 재귀적으로 다 돌며 게시글 헤드라인(제목/작성자/날짜)만 모은다(본문 페이지에는
+들어가지 않음). `sample_list_url`을 매번 사람이 지정해줘야 하던 방식을 대체한다(명시적으로
+지정하면 여전히 그쪽이 우선). 카테고리당 페이지네이션은 `config.SITE_MAP_MAX_PAGES_PER_CATEGORY`
+(기본 5)까지만. 세션 만료/챌린지 감지(`challenge.py`, §4.2-6) 시 자동 재로그인은 하지 않고(§3-3)
+`content_sample.CrawlInterrupted`를 던진다 — 그 시점까지 모은 결과는 체크포인트
+(`config.CHECKPOINT_DIR`)에 남아 `investigate.py --resume`(`docker/run-crawl.ps1 -Resume`)으로
+이어서 진행할 수 있다. 자세한 배경은 [progress-log/2026-08-23-handoff.md](../progress-log/2026-08-23-handoff.md) 참고.
 
 ---
 

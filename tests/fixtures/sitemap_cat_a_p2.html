@@ -1,0 +1,20 @@
+<!--
+    content_sample.crawl_site() 테스트용 fixture. Category A의 2페이지째. 게시글 1건 +
+    다음 페이지(sitemap_cat_a_p3.html) 링크가 또 있다 — 페이지네이션 상한(SITE_MAP_MAX_PAGES_
+    PER_CATEGORY)을 낮게 monkeypatch했을 때 p3까지는 안 가는지 검증하는 데 쓴다.
+-->
+<html lang="ko">
+<head><title>Category A - page 2</title></head>
+<body>
+  <div class="thread-list">
+    <div class="thread">
+      <span class="title">Category A page2 post</span>
+      <span class="author">userA3</span>
+      <time datetime="2026-08-03">2026-08-03</time>
+    </div>
+  </div>
+  <ul class="pagination">
+    <li><a class="next" href="sitemap_cat_a_p3.html">다음</a></li>
+  </ul>
+</body>
+</html>

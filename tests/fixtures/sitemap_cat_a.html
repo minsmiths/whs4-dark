@@ -1,0 +1,28 @@
+<!--
+    content_sample.crawl_site() 테스트용 fixture. 실제 대상 사이트의 원문이 아니다.
+    게시글 2건 + 페이지네이션 "다음" 링크(sitemap_cat_a_p2.html) + 하위 서브포럼 링크
+    (sitemap_cat_a_sub.html)를 한 페이지에 둬서 재귀 탐색과 페이지네이션을 함께 검증한다.
+-->
+<html lang="ko">
+<head><title>Category A</title></head>
+<body>
+  <nav>
+    <a href="sitemap_cat_a_sub.html">Sub A1</a>
+  </nav>
+  <div class="thread-list">
+    <div class="thread">
+      <span class="title">Category A first post</span>
+      <span class="author">userA1</span>
+      <time datetime="2026-08-01">2026-08-01</time>
+    </div>
+    <div class="thread">
+      <span class="title">Category A second post</span>
+      <span class="author">userA2</span>
+      <time datetime="2026-08-02">2026-08-02</time>
+    </div>
+  </div>
+  <ul class="pagination">
+    <li><a class="next" href="sitemap_cat_a_p2.html">다음</a></li>
+  </ul>
+</body>
+</html>

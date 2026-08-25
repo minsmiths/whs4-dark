@@ -30,3 +30,37 @@ def test_run_never_makes_identity_judgement():
 
     for handle_entry in result["_표본_핸들"]:
         assert set(handle_entry.keys()) == {"handle", "count", "last_seen"}
+
+
+def test_find_operator_candidates_uses_announcement_board_authors():
+    posts = [
+        {"title": "a", "author": "Knox", "category": "Announcements", "date": "2026-08-01"},
+        {"title": "b", "author": "Knox", "category": "Announcements", "date": "2026-08-02"},
+        {"title": "c", "author": "Lucifer", "category": "Announcements", "date": "2026-08-03"},
+        {"title": "e", "author": "Lucifer", "category": "Announcements", "date": "2026-08-04"},
+        {"title": "f", "author": "OneTimePoster", "category": "Announcements", "date": "2026-08-05"},
+        {"title": "d", "author": "randomUser", "category": "General Discussion", "date": "2026-08-01"},
+    ]
+
+    result = user_activity.find_operator_candidates(posts)
+
+    # 1회성 게시자(OneTimePoster)는 min_posts=2 임계치 미만이라 빠진다.
+    assert result["handles"] == ["Knox", "Lucifer"]
+    assert result["categories"] == ["Announcements"]
+
+
+def test_find_operator_candidates_empty_without_announcement_board():
+    posts = [{"title": "d", "author": "randomUser", "category": "General Discussion", "date": "2026-08-01"}]
+
+    result = user_activity.find_operator_candidates(posts)
+
+    assert result["handles"] == []
+
+
+def test_find_operator_candidates_empty_without_category_field():
+    """sample_list_url 단일 페이지 경로(category 없음)에서는 항상 빈 결과가 나온다."""
+    posts = [{"title": "d", "author": "randomUser", "date": "2026-08-01"}]
+
+    result = user_activity.find_operator_candidates(posts)
+
+    assert result["handles"] == []

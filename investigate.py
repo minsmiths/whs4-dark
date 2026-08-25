@@ -17,9 +17,10 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from tqdm import tqdm
 
 import config
-import report_generator
+import profile_report_generator
 import session_manager
 import snapshot
 from collectors import (
@@ -56,73 +57,116 @@ def find_approved_source(url: str, source_type: str) -> dict[str, Any] | None:
     return None
 
 
-def run_pipeline(page, source: dict[str, Any]) -> dict[str, Any]:
-    """Collector ①~⑦을 순서대로 호출하고 report_generator 가 쓸 dict로 취합한다."""
+def run_pipeline(page, source: dict[str, Any], *, resume: bool = False) -> dict[str, Any]:
+    """Collector ①~⑦을 순서대로 호출하고 report_generator 가 쓸 dict로 취합한다.
+
+    resume=True면 content_sample.crawl_site()가 이전 체크포인트(세션 만료/챌린지로 중단된
+    사이트 전체 헤드라인 순회)부터 이어서 진행한다. crawl_site()가 다시 막히면
+    content_sample.CrawlInterrupted가 그대로 위로 전파된다 — 호출부(main())가 처리한다.
+    """
     results: dict[str, Any] = {}
     source_id = source.get("name") or source.get("url", "unknown")
 
-    logger.info("① availability")
-    results.update(availability.run(page, source))
-    snapshot.save_snapshot(page, source_id, "availability_home")
+    # Collector ①~⑦ 진행 상황을 눈으로 볼 수 있게 진행바를 띄운다(§ 사용자 요청,
+    # 2026-08-24). .onion은 회선이 느려 한 단계가 몇 분씩 걸릴 수 있어서, "지금 죽은 건지
+    # 그냥 느린 건지" 구분이 잘 안 되는 문제가 있었다 — Docker에서 TTY 없이 돌 때도 tqdm은
+    # 알아서 매 update마다 한 줄씩 찍는 방식으로 대체 출력한다.
+    with tqdm(total=7, desc="investigate", unit="step") as pbar:
+        pbar.set_description("① availability")
+        results.update(availability.run(page, source))
+        snapshot.save_snapshot(page, source_id, "availability_home")
+        pbar.update(1)
 
-    if source.get("requires_login"):
-        selector = source.get("logged_in_selector")
-        if not selector:
-            logger.info(
-                "logged_in_selector 미설정 — 세션 유효성 자동 확인을 건너뜁니다(whitelist.yaml에 추가 가능)."
-            )
-        elif session_manager.is_session_valid(page, selector):
-            logger.info("세션 유효함 확인됨 (logged_in_selector 매칭)")
+        if source.get("requires_login"):
+            selector = source.get("logged_in_selector")
+            if not selector:
+                logger.info(
+                    "logged_in_selector 미설정 — 세션 유효성 자동 확인을 건너뜁니다"
+                    "(whitelist.yaml에 추가 가능)."
+                )
+            elif session_manager.is_session_valid(page, selector):
+                logger.info("세션 유효함 확인됨 (logged_in_selector 매칭)")
+            else:
+                # M1 완료 기준 (c): 자동 재로그인 없이 만료만 기록하고 파이프라인은 계속 진행한다.
+                session_manager.record_session_expired(source_id)
+
+        pbar.set_description("② structure")
+        time.sleep(config.REQUEST_DELAY_MIN_SEC)
+        results.update(structure.run(page, source))
+        # structure.run()은 규칙 페이지를 봤다가 원래 페이지로 복귀한다 — 복귀 후 상태를 스냅샷.
+        snapshot.save_snapshot(page, source_id, "structure_home_after")
+        pbar.update(1)
+
+        # stats/content_sample은 "게시글이 실제로 나열된 목록 페이지"를 전제로 한다.
+        #
+        # sample_list_url이 지정돼 있으면 사람이 직접 골라준 페이지를 우선한다(기존 동작 그대로).
+        # 없으면, structure()가 홈페이지에서 찾은 카테고리(하위 서브포럼 포함)가 있는 경우
+        # content_sample.crawl_site()로 사이트 전체를 재귀적으로 돌며 게시글 헤드라인만 모은다
+        # (개별 게시글 본문에는 들어가지 않음). 둘 다 없으면 기존처럼 현재 페이지에서 시도한다.
+        sample_list_url = source.get("sample_list_url")
+        category_seed = results.get("_사이트_카테고리_시드", [])
+
+        if sample_list_url:
+            try:
+                page.goto(
+                    sample_list_url, timeout=config.PAGE_LOAD_TIMEOUT_MS, wait_until=config.PAGE_WAIT_UNTIL
+                )
+                snapshot.save_snapshot(page, source_id, "sample_list_page")
+            except Exception:  # noqa: BLE001 - 이동 실패해도 stats/content_sample이 BLOCKED로 처리
+                logger.warning("sample_list_url 접속 실패: %s", sample_list_url)
+
+            pbar.set_description("③ stats")
+            time.sleep(config.REQUEST_DELAY_MIN_SEC)
+            results.update(stats.run(page, source))
+            pbar.update(1)
+
+            pbar.set_description("④ content_sample")
+            time.sleep(config.REQUEST_DELAY_MIN_SEC)
+            results.update(content_sample.run(page, source))
+            pbar.update(1)
+        elif category_seed:
+            pbar.set_description("③ stats (홈페이지 기준)")
+            time.sleep(config.REQUEST_DELAY_MIN_SEC)
+            results.update(stats.run(page, source))
+            pbar.update(1)
+
+            pbar.set_description("④ content_sample (사이트 전체 카테고리 재귀 순회)")
+            results.update(content_sample.crawl_site(page, source, category_seed, resume=resume))
+            pbar.update(1)
         else:
-            # M1 완료 기준 (c): 자동 재로그인 없이 만료만 기록하고 파이프라인은 계속 진행한다.
-            session_manager.record_session_expired(source_id)
+            logger.info(
+                "카테고리도 sample_list_url도 없음 — 현재 페이지(보통 홈페이지)에서 표본을 "
+                "시도합니다. 게시글 목록이 없는 페이지면 규모/표본 관련 필드가 BLOCKED로 나올 수 있습니다."
+            )
+            pbar.set_description("③ stats")
+            time.sleep(config.REQUEST_DELAY_MIN_SEC)
+            results.update(stats.run(page, source))
+            pbar.update(1)
 
-    logger.info("② structure")
-    time.sleep(config.REQUEST_DELAY_MIN_SEC)
-    results.update(structure.run(page, source))
-    # structure.run()은 규칙 페이지를 봤다가 원래 페이지로 복귀한다 — 복귀 후 상태를 스냅샷.
-    snapshot.save_snapshot(page, source_id, "structure_home_after")
+            pbar.set_description("④ content_sample")
+            time.sleep(config.REQUEST_DELAY_MIN_SEC)
+            results.update(content_sample.run(page, source))
+            pbar.update(1)
 
-    # stats/content_sample은 "게시글이 실제로 나열된 목록 페이지"를 전제로 한다. 홈페이지엔
-    # 보통 카테고리만 있고 게시글은 없어서, whitelist.yaml에 sample_list_url이 지정돼 있으면
-    # 거기로 이동한 뒤에 두 Collector를 돌린다 (미지정 시 기존처럼 현재 페이지에서 시도).
-    sample_list_url = source.get("sample_list_url")
-    if sample_list_url:
-        try:
-            page.goto(sample_list_url, timeout=config.PAGE_LOAD_TIMEOUT_MS)
-            snapshot.save_snapshot(page, source_id, "sample_list_page")
-        except Exception:  # noqa: BLE001 - 이동 실패해도 stats/content_sample이 BLOCKED로 처리
-            logger.warning("sample_list_url 접속 실패: %s", sample_list_url)
-    else:
-        logger.info(
-            "sample_list_url 미설정 — 현재 페이지(보통 홈페이지)에서 표본을 시도합니다. "
-            "게시글 목록이 없는 페이지면 규모/표본 관련 필드가 BLOCKED로 나올 수 있습니다."
-        )
+        pbar.set_description("⑤ cross_reference")
+        # 이전 단계에서 모은 텍스트를 재사용한다 (새 페이지 요청을 만들지 않음).
+        collected_texts = {
+            "표본 게시글 제목": " ".join(p.get("title", "") for p in results.get("_표본_게시글", []))
+        }
+        rules_text = results.get("_들어가는_법_구조", {})
+        if "value" in rules_text:
+            collected_texts["규칙/FAQ 페이지 원문"] = rules_text["value"]
+        results.update(cross_reference.run(collected_texts, source))
+        pbar.update(1)
 
-    logger.info("③ stats")
-    time.sleep(config.REQUEST_DELAY_MIN_SEC)
-    results.update(stats.run(page, source))
+        pbar.set_description("⑥ access_probe")
+        time.sleep(config.REQUEST_DELAY_MIN_SEC)
+        results.update(access_probe.run(page, source))
+        pbar.update(1)
 
-    logger.info("④ content_sample")
-    time.sleep(config.REQUEST_DELAY_MIN_SEC)
-    results.update(content_sample.run(page, source))
-
-    logger.info("⑤ cross_reference")
-    # 이전 단계에서 모은 텍스트를 재사용한다 (새 페이지 요청을 만들지 않음).
-    collected_texts = {
-        "표본 게시글 제목": " ".join(p.get("title", "") for p in results.get("_표본_게시글", []))
-    }
-    rules_text = results.get("_들어가는_법_구조", {})
-    if "value" in rules_text:
-        collected_texts["규칙/FAQ 페이지 원문"] = rules_text["value"]
-    results.update(cross_reference.run(collected_texts, source))
-
-    logger.info("⑥ access_probe")
-    time.sleep(config.REQUEST_DELAY_MIN_SEC)
-    results.update(access_probe.run(page, source))
-
-    logger.info("⑦ user_activity")
-    results.update(user_activity.run(results.get("_표본_게시글", []), source))
+        pbar.set_description("⑦ user_activity")
+        results.update(user_activity.run(results.get("_표본_게시글", []), source))
+        pbar.update(1)
 
     # "들어가는 법"(23칸 스키마 #19, AUTO-append, INTERNAL_ONLY)은 structure(규칙 페이지)와
     # access_probe(가입 폼) 두 Collector가 채운다. 같은 dict 키에 update()로 이어붙이면
@@ -133,6 +177,14 @@ def run_pipeline(page, source: dict[str, Any]) -> dict[str, Any]:
     if "_들어가는_법_가입폼" in results:
         entering_entries.append(("가입 페이지 입력 필드", results["_들어가는_법_가입폼"]))
     results["들어가는 법"] = entering_entries
+
+    # profile_report_generator.py(사용자 지정 템플릿, 2026-08-25) 전용 후보 필드. category 필드가
+    # 있어야 의미가 있는 계산이라(_사이트맵_방문_URL 재귀 순회 경로에서만 채워짐) sample_list_url
+    # 단일 페이지 경로에서는 그냥 CONFIRMED_ABSENT로 나온다 — 정상 동작이다.
+    posts_full = results.get("_표본_게시글", [])
+    results["_운영자_후보"] = user_activity.find_operator_candidates(posts_full)
+    results["_개인정보_유출_후보"] = content_sample.find_notable_leak_candidates(posts_full)
+    results["_한국_관련_유출_최근"] = content_sample.find_korea_specific_leaks(posts_full)
 
     return results
 
@@ -146,6 +198,15 @@ def main(argv: list[str] | None = None) -> int:
         default="forum",
         choices=["forum", "marketplace", "dls", "paste"],
         help="사이트 유형. MVP는 forum만 실제 구현.",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help=(
+            "이전 실행이 세션 만료/챌린지 감지로 사이트 전체 헤드라인 순회 도중 중단됐을 때, "
+            "체크포인트부터 이어서 진행합니다. 사람이 VNC로 재로그인/챌린지를 먼저 해결한 "
+            "뒤에 쓰세요 — 자동 재로그인은 하지 않습니다(CLAUDE.md §3-3)."
+        ),
     )
     args = parser.parse_args(argv)
 
@@ -177,11 +238,24 @@ def main(argv: list[str] | None = None) -> int:
                 )
             context = browser.new_context(storage_state=storage_state)
             page = context.new_page()
-            results = run_pipeline(page, source)
+            try:
+                results = run_pipeline(page, source, resume=args.resume)
+            except content_sample.CrawlInterrupted as exc:
+                # CLAUDE.md §3-3·§4.2-6: 자동 재로그인/자동 챌린지 우회는 하지 않는다.
+                # 체크포인트는 이미 crawl_site() 안에서 저장됐다 — 여기선 안내만 하고 멈춘다.
+                logger.error(
+                    "크롤링이 중단됐습니다 (%s). 결과가 불완전하므로 리포트를 만들지 않습니다. "
+                    "VNC로 재로그인/챌린지 해결 후 --resume 옵션으로 이어서 실행하세요.",
+                    exc.reason,
+                )
+                return 2
         finally:
             browser.close()
 
-    out_path = report_generator.write_report(source, results, config.OUTPUT_DIR)
+    # 2026-08-25(사용자 확인): 노션 23칸 공식 스키마(report_generator.py) 대신 사용자 지정
+    # 프로파일 템플릿(profile_report_generator.py)으로 전면 교체됨. CLAUDE.md §4.1은 그대로
+    # 지킨다 — output/ 에 MD 파일 1개만 나간다.
+    out_path = profile_report_generator.write_report(source, results, config.OUTPUT_DIR)
     logger.info("결과 저장됨: %s", out_path)
     print(out_path)
     return 0

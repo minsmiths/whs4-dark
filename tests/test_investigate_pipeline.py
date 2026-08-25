@@ -37,6 +37,7 @@ def page():
 
 def test_run_pipeline_end_to_end_fills_every_column_without_crashing(tmp_path, monkeypatch, page):
     monkeypatch.setattr(config, "SNAPSHOTS_DIR", str(tmp_path / "snapshots"))
+    monkeypatch.setattr(config, "CHECKPOINT_DIR", str(tmp_path / "sessions"))
 
     source = {"name": "example-forum", "url": page.url}
     results = investigate.run_pipeline(page, source)
@@ -60,6 +61,7 @@ def test_run_pipeline_end_to_end_fills_every_column_without_crashing(tmp_path, m
 
 def test_run_pipeline_records_expired_session_and_keeps_running(tmp_path, monkeypatch, page):
     monkeypatch.setattr(config, "SNAPSHOTS_DIR", str(tmp_path / "snapshots"))
+    monkeypatch.setattr(config, "CHECKPOINT_DIR", str(tmp_path / "sessions"))
     log_path = tmp_path / "run_log.json"
     monkeypatch.setattr(config, "RUN_LOG_PATH", str(log_path))
 
@@ -149,7 +151,7 @@ def test_main_launches_chromium_through_tor_proxy_without_sandbox_flags(tmp_path
     )
     monkeypatch.setattr(investigate.config, "WHITELIST_PATH", str(whitelist_path))
     monkeypatch.setattr(investigate.config, "OUTPUT_DIR", str(tmp_path / "output"))
-    monkeypatch.setattr(investigate, "run_pipeline", lambda page, source: {})
+    monkeypatch.setattr(investigate, "run_pipeline", lambda page, source, **kwargs: {})
 
     launches: list[dict] = []
     import playwright.sync_api as pw_api

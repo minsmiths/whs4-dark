@@ -26,7 +26,7 @@ def run(page: Page, source: dict[str, Any]) -> dict[str, Any]:
 
     start = time.monotonic()
     try:
-        response = page.goto(url, timeout=config.PAGE_LOAD_TIMEOUT_MS)
+        response = page.goto(url, timeout=config.PAGE_LOAD_TIMEOUT_MS, wait_until=config.PAGE_WAIT_UNTIL)
     except Exception:  # noqa: BLE001 - 타임아웃 등 Playwright 예외 전반
         result["상태"] = {"state": "BLOCKED", "reason": "타임아웃 또는 접속 실패"}
         return result
