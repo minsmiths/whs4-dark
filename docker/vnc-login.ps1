@@ -26,6 +26,8 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$SourceName,
+    [ValidateSet("chromium", "firefox")]
+    [string]$BrowserEngine = "chromium",
     [string]$Image = "darkweb-crawler:latest",
     [string]$ViewerPath = "C:\Program Files\TightVNC\tvnviewer.exe"
 )
@@ -51,6 +53,7 @@ Write-Host "VNC 접속 비밀번호: $VncPassword"  -ForegroundColor Yellow
 $dockerCmdLine = "docker run --rm -it --name $ContainerName " +
     "-p 127.0.0.1::5900 " +
     "-e VNC_PASSWORD=$VncPassword " +
+    "-e BROWSER_ENGINE=$BrowserEngine " +
     "-v `"${WhitelistPath}:/app/whitelist.yaml:ro`" " +
     "-v darkweb-sessions:/app/sessions " +
     "$Image ./docker/login.sh $SourceName"

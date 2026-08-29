@@ -31,6 +31,8 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$SourceName,
+    [ValidateSet("chromium", "firefox")]
+    [string]$BrowserEngine = "chromium",
     [string]$Image = "darkweb-crawler:latest",
     [switch]$Resume
 )
@@ -83,6 +85,7 @@ $dockerCmdLine = "docker run --rm " +
     "-v `"${OutputDir}:/app/output`" " +
     "-v darkweb-sessions:/app/sessions " +
     "-v darkweb-snapshots:/app/snapshots " +
+    "-e BROWSER_ENGINE=$BrowserEngine " +
     "-e TARGET_URL=`"$($entry.url)`" " +
     "-e SOURCE_TYPE=`"$($entry.source_type)`" "
 if ($Resume) {

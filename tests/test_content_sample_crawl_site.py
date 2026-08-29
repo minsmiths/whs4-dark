@@ -125,6 +125,21 @@ def test_crawl_site_follows_numbered_pagination_without_explicit_next_link(page,
     assert by_title["Category C page2 post"]["page"] == 2
 
 
+def test_crawl_site_accepts_per_category_page_limit(page):
+    seed = [{"text": "Category A", "url": _uri("sitemap_cat_a.html")}]
+
+    result = content_sample.crawl_site(
+        page,
+        source={"name": "x", "url": page.url},
+        category_seed=seed,
+        pages_per_category=1,
+    )
+
+    assert all(post["page"] == 1 for post in result["_표본_게시글"])
+    assert result["_crawl_completion"]["pages_per_category"] == 1
+    assert result["_crawl_completion"]["complete"] is True
+
+
 def test_crawl_site_does_not_revisit_the_same_url_twice(page):
     seed = [
         {"text": "Category B", "url": _uri("sitemap_cat_b.html")},
@@ -156,6 +171,42 @@ def test_crawl_site_raises_and_checkpoints_on_challenge_detection(page):
     assert state["queue"][0]["text"] == "Challenge Page"
     assert any(entry["text"] == "Category B" for entry in state["queue"])
     assert state["posts"] == []  # 챌린지 화면 자체에선 게시글을 못 모았으므로 비어있어야 정상
+
+
+def test_crawl_site_raises_on_title_less_rate_limit_page(page):
+    """2026-08-26 pwnforums 실크롤 사고 재발 방지: title 태그가 없는 속도 제한(flood control)
+    응답도 챌린지처럼 감지해 CrawlInterrupted를 던져야 한다 — 그렇지 않으면 이후 모든 카테고리가
+    조용히 게시글 0건으로 끝나고 "확인했는데 없음"으로 잘못 기록된다."""
+    seed = [{"text": "Rate Limited", "url": _uri("sitemap_rate_limited.html")}]
+
+    with pytest.raises(content_sample.CrawlInterrupted) as exc_info:
+        content_sample.crawl_site(page, source={"name": "x", "url": page.url}, category_seed=seed)
+
+    assert "챌린지" in exc_info.value.reason
+
+
+def test_crawl_site_interrupts_after_consecutive_connection_failures(page, monkeypatch):
+    """2026-08-27 cracked.st: DDoS-Guard가 응답을 안 주고 타임아웃으로만 끝나면 goto가 예외로
+    죽고 challenge.detect도 못 돌아, 수백 개 카테고리를 전부 "접속 실패"로 갈아넣고 게시글 0건으로
+    조용히 끝났다. 연속 실패가 임계치에 닿으면 체크포인트를 남기고 CrawlInterrupted를 던져야 한다."""
+    monkeypatch.setattr(config, "CHALLENGE_MAX_CONSECUTIVE_FAILURES", 3)
+
+    seed = [{"text": f"Dead {i}", "url": f"http://127.0.0.1:9/dead-{i}"} for i in range(3)]
+    seed.append({"text": "Category B", "url": _uri("sitemap_cat_b.html")})
+
+    with pytest.raises(content_sample.CrawlInterrupted) as exc_info:
+        content_sample.crawl_site(page, source={"name": "x", "url": page.url}, category_seed=seed)
+
+    assert "연속" in exc_info.value.reason
+
+    checkpoint_files = list(Path(config.CHECKPOINT_DIR).glob("*.sitemap_checkpoint.json"))
+    assert len(checkpoint_files) == 1
+    state = json.loads(checkpoint_files[0].read_text(encoding="utf-8"))
+    # 죽은 URL 3개는 재시도해도 소용없으니 visited/failures로 넘기고 큐에서 뺀다.
+    assert not any(e["text"].startswith("Dead") for e in state["queue"])
+    assert len(state["failures"]) == 3
+    # 아직 안 가본 정상 카테고리는 큐에 남는다 — --resume 하면 여기서부터 이어간다.
+    assert any(e["text"] == "Category B" for e in state["queue"])
 
 
 def test_crawl_site_resume_continues_from_saved_checkpoint(page):

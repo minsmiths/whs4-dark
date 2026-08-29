@@ -1,0 +1,7 @@
+<!--
+    content_sample.crawl_site() / challenge.detect() 테스트용 fixture. title 태그가 아예
+    없고 짧은 본문 텍스트만 있는 속도 제한(flood control) 응답을 흉내낸다(2026-08-26,
+    pwnforums 실크롤에서 실제로 겪음 — Cloudflare 챌린지가 아니라 title 없는 "Slow down now"
+    응답). config.CHALLENGE_BODY_KEYWORDS로 이런 페이지도 감지되는지 검증하는 데 쓴다.
+-->
+<html><head><meta name="color-scheme" content="light dark"></head><body><pre style="word-wrap: break-word; white-space: pre-wrap;">Slow down now</pre></body></html>

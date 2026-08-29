@@ -18,3 +18,11 @@ def test_get_profile_returns_registered_profile(monkeypatch):
     monkeypatch.setitem(site_profiles.PROFILES, "test-platform", {"nav_link_selector": ".x a"})
 
     assert site_profiles.get_profile({"platform": "test-platform"}) == {"nav_link_selector": ".x a"}
+
+
+def test_cracked_profile_targets_forum_table_and_mybb_threads():
+    profile = site_profiles.get_profile({"platform": "cracked"})
+
+    assert "table.index_table" in profile["nav_link_selector"]
+    assert profile["post_row_selector"] == "tr.inline_row"
+    assert profile["post_title_selector"] == '[id^="tid_"] a'

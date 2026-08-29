@@ -123,7 +123,14 @@ def test_find_korea_specific_leaks_ignores_generic_leak_keywords():
 
 
 def test_find_korea_specific_leaks_empty_without_match():
-    posts = [{"title": "Huge database leak", "author": "a", "category": "Databases", "date": "01-08-26, 09:00 AM"}]
+    posts = [
+        {
+            "title": "Huge database leak",
+            "author": "a",
+            "category": "Databases",
+            "date": "01-08-26, 09:00 AM",
+        }
+    ]
 
     assert content_sample.find_korea_specific_leaks(posts) == []
 
@@ -288,4 +295,25 @@ def test_collect_posts_uses_darkforums_profile_with_no_datetime_attribute():
             {"title": "Welcome", "author": "Lucifer", "date": "18-11-22, 11:26 AM"},
             {"title": "Other Thread", "author": "AnonOne", "date": "09-09-23, 09:09 AM"},
         ]
+        browser.close()
+
+
+def test_collect_posts_falls_back_to_thread_url_patterns():
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        page = browser.new_page()
+        page.set_content(
+            """
+            <section class="unknown-list">
+              <div><a href="/Thread-First-123">First topic</a></div>
+              <div><a href="/Thread-Second-456">Second topic</a></div>
+              <div><a href="/Thread-First-123#pid1">First topic duplicate</a></div>
+            </section>
+            """
+        )
+
+        posts = content_sample.collect_posts(page)
+
+        assert [post["title"] for post in posts] == ["First topic", "Second topic"]
+        assert all(post["url"] for post in posts)
         browser.close()

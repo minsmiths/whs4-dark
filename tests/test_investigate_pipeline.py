@@ -21,6 +21,7 @@ from playwright.sync_api import sync_playwright
 import config
 import investigate
 import report_generator
+from collectors import content_sample
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -99,6 +100,65 @@ def test_run_pipeline_navigates_to_sample_list_url_before_stats_and_content_samp
         assert results["_표본_게시글"]  # 홈페이지가 아니라 목록 페이지에서 실제로 수집됨
         assert "210" in results["규모"]["value"]  # forum_thread_list.html 기준 페이지네이션 추정치
         browser.close()
+
+
+def test_run_pipeline_halts_when_homepage_shows_a_challenge(tmp_path, monkeypatch):
+    """2026-08-27 cracked.st: DDoS-Guard가 홈페이지를 막으면 structure는 카테고리 0개를 찾고
+    파이프라인은 비-재개 단일페이지 폴백으로 빠져 빈 리포트를 냈다. 홈에서 챌린지가 잡히면
+    CrawlInterrupted로 즉시 멈춰야 한다(자동 우회 안 함, §3-3)."""
+    monkeypatch.setattr(config, "SNAPSHOTS_DIR", str(tmp_path / "snapshots"))
+    monkeypatch.setattr(config, "CHECKPOINT_DIR", str(tmp_path / "sessions"))
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page()
+        page.goto((FIXTURES_DIR / "sitemap_challenge.html").as_uri())  # title "Just a moment..."
+
+        source = {"name": "x", "url": (FIXTURES_DIR / "sitemap_challenge.html").as_uri()}
+        with pytest.raises(content_sample.CrawlInterrupted) as exc_info:
+            investigate.run_pipeline(page, source)
+        browser.close()
+
+    assert "챌린지" in exc_info.value.reason
+
+
+def test_run_pipeline_resumes_from_checkpoint_even_when_homepage_yields_no_categories(
+    tmp_path, monkeypatch
+):
+    """--resume + 체크포인트가 있으면, 이번 실행의 홈페이지에서 카테고리 시드를 못 뽑아도
+    crawl_site()를 체크포인트 큐로 이어서 돌아야 한다(빈 리포트로 덮어쓰지 않는다)."""
+    monkeypatch.setattr(config, "SNAPSHOTS_DIR", str(tmp_path / "snapshots"))
+    monkeypatch.setattr(config, "CHECKPOINT_DIR", str(tmp_path / "sessions"))
+    monkeypatch.setattr(config, "REQUEST_DELAY_MIN_SEC", 0)
+    monkeypatch.setattr(config, "REQUEST_DELAY_MAX_SEC", 0)
+
+    checkpoint_path = content_sample._checkpoint_path("x")
+    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    checkpoint_path.write_text(
+        json.dumps(
+            {
+                "queue": [{"text": "Category B", "url": (FIXTURES_DIR / "sitemap_cat_b.html").as_uri()}],
+                "visited": [],
+                "posts": [],
+                "visited_categories": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page()
+        # 로그인 폼만 있는 페이지 — 정상 로드되지만 카테고리 링크가 없다(_사이트_카테고리_시드 = []).
+        page.goto((FIXTURES_DIR / "forum_login.html").as_uri())
+
+        source = {"name": "x", "url": (FIXTURES_DIR / "forum_login.html").as_uri()}
+        results = investigate.run_pipeline(page, source, resume=True)
+        browser.close()
+
+    assert "Category B" in results["_사이트맵_방문_카테고리"]
+    assert any("korea database dump" in p["title"] for p in results["_표본_게시글"])
+    assert not checkpoint_path.exists()  # 끝까지 이어서 돌았으면 정리된다
 
 
 class _FakeChromium:

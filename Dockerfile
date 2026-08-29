@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt \
-    && playwright install --with-deps chromium
+    && playwright install --with-deps chromium firefox
 
 COPY . /app
 RUN chmod +x docker/login.sh docker/wait-for-tor.sh

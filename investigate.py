@@ -19,10 +19,12 @@ from typing import Any
 import yaml
 from tqdm import tqdm
 
+import challenge
 import config
 import profile_report_generator
 import session_manager
 import snapshot
+import structure_diagnostics
 from collectors import (
     access_probe,
     availability,
@@ -57,7 +59,9 @@ def find_approved_source(url: str, source_type: str) -> dict[str, Any] | None:
     return None
 
 
-def run_pipeline(page, source: dict[str, Any], *, resume: bool = False) -> dict[str, Any]:
+def run_pipeline(
+    page, source: dict[str, Any], *, resume: bool = False, pages_per_category: int | None = None
+) -> dict[str, Any]:
     """Collector ①~⑦을 순서대로 호출하고 report_generator 가 쓸 dict로 취합한다.
 
     resume=True면 content_sample.crawl_site()가 이전 체크포인트(세션 만료/챌린지로 중단된
@@ -66,6 +70,11 @@ def run_pipeline(page, source: dict[str, Any], *, resume: bool = False) -> dict[
     """
     results: dict[str, Any] = {}
     source_id = source.get("name") or source.get("url", "unknown")
+
+    # --resume 인데 이전 사이트 순회 체크포인트가 남아 있으면, 이번 실행에서 홈페이지가
+    # 챌린지로 막혀 카테고리 시드를 못 뽑아도 crawl_site()를 체크포인트 큐로 이어서 돈다.
+    # (아래 stats/content_sample 분기에서 사용.)
+    resume_checkpoint_exists = resume and content_sample.has_checkpoint(source_id)
 
     # Collector ①~⑦ 진행 상황을 눈으로 볼 수 있게 진행바를 띄운다(§ 사용자 요청,
     # 2026-08-24). .onion은 회선이 느려 한 단계가 몇 분씩 걸릴 수 있어서, "지금 죽은 건지
@@ -76,6 +85,21 @@ def run_pipeline(page, source: dict[str, Any], *, resume: bool = False) -> dict[
         results.update(availability.run(page, source))
         snapshot.save_snapshot(page, source_id, "availability_home")
         pbar.update(1)
+
+        # 홈페이지 로딩 시점에도 챌린지를 상시로 확인한다(§4.2-6). 여기서 잡히면 이후 단계는
+        # 어차피 빈손이고, --resume 재개 경로(content_sample.crawl_site 체크포인트)에 진입도
+        # 못한 채 빈 리포트로 기존 진행분을 덮어쓰게 된다(2026-08-27 cracked.st). 자동 우회는
+        # 하지 않고(§3-3) 즉시 중단해 사람이 VNC로 풀고 --resume 하도록 넘긴다.
+        home_challenge = challenge.detect(page)
+        if home_challenge:
+            raise content_sample.CrawlInterrupted(f"홈페이지 챌린지 감지: {home_challenge}")
+        home_state = results.get("상태")
+        home_blocked = isinstance(home_state, dict) and home_state.get("state") == "BLOCKED"
+        if home_blocked and resume_checkpoint_exists:
+            raise content_sample.CrawlInterrupted(
+                f"홈페이지 접속 실패({home_state.get('reason')}) — 저장된 체크포인트를 빈 "
+                "결과로 덮어쓰지 않도록 중단합니다. VNC로 접속/차단을 해결한 뒤 --resume 하세요."
+            )
 
         if source.get("requires_login"):
             selector = source.get("logged_in_selector")
@@ -95,6 +119,7 @@ def run_pipeline(page, source: dict[str, Any], *, resume: bool = False) -> dict[
         results.update(structure.run(page, source))
         # structure.run()은 규칙 페이지를 봤다가 원래 페이지로 복귀한다 — 복귀 후 상태를 스냅샷.
         snapshot.save_snapshot(page, source_id, "structure_home_after")
+        structure_diagnostics.save(page, source_id, "structure_home_diagnostic")
         pbar.update(1)
 
         # stats/content_sample은 "게시글이 실제로 나열된 목록 페이지"를 전제로 한다.
@@ -124,14 +149,24 @@ def run_pipeline(page, source: dict[str, Any], *, resume: bool = False) -> dict[
             time.sleep(config.REQUEST_DELAY_MIN_SEC)
             results.update(content_sample.run(page, source))
             pbar.update(1)
-        elif category_seed:
+        elif category_seed or resume_checkpoint_exists:
             pbar.set_description("③ stats (홈페이지 기준)")
             time.sleep(config.REQUEST_DELAY_MIN_SEC)
             results.update(stats.run(page, source))
             pbar.update(1)
 
+            # resume_checkpoint_exists 로 여기 들어온 경우 category_seed가 비어 있을 수 있다 —
+            # crawl_site()가 resume=True 면 체크포인트 큐를 우선하므로 그대로 넘겨도 된다.
             pbar.set_description("④ content_sample (사이트 전체 카테고리 재귀 순회)")
-            results.update(content_sample.crawl_site(page, source, category_seed, resume=resume))
+            results.update(
+                content_sample.crawl_site(
+                    page,
+                    source,
+                    category_seed,
+                    resume=resume,
+                    pages_per_category=pages_per_category,
+                )
+            )
             pbar.update(1)
         else:
             logger.info(
@@ -147,6 +182,23 @@ def run_pipeline(page, source: dict[str, Any], *, resume: bool = False) -> dict[
             time.sleep(config.REQUEST_DELAY_MIN_SEC)
             results.update(content_sample.run(page, source))
             pbar.update(1)
+            results["_crawl_failures"] = [
+                {
+                    "category": "사이트 구조",
+                    "page": 1,
+                    "url": page.url,
+                    "reason": "카테고리 selector 자동 판별 실패",
+                }
+            ]
+            results["_crawl_completion"] = {
+                "complete": False,
+                "categories": 0,
+                "pages": 0,
+                "posts": len(results.get("_표본_게시글", [])),
+                "failures": 1,
+                "pages_per_category": pages_per_category
+                or config.SITE_MAP_MAX_PAGES_PER_CATEGORY,
+            }
 
         pbar.set_description("⑤ cross_reference")
         # 이전 단계에서 모은 텍스트를 재사용한다 (새 페이지 요청을 만들지 않음).
@@ -208,6 +260,12 @@ def main(argv: list[str] | None = None) -> int:
             "뒤에 쓰세요 — 자동 재로그인은 하지 않습니다(CLAUDE.md §3-3)."
         ),
     )
+    parser.add_argument(
+        "--pages-per-category",
+        type=int,
+        default=config.SITE_MAP_MAX_PAGES_PER_CATEGORY,
+        help="각 게시판에서 수집할 목록 페이지 수(기본값: 5)",
+    )
     args = parser.parse_args(argv)
 
     source = find_approved_source(args.url, args.source_type)
@@ -226,7 +284,8 @@ def main(argv: list[str] | None = None) -> int:
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(
+        browser_type = getattr(p, config.BROWSER_ENGINE)
+        browser = browser_type.launch(
             proxy={"server": config.TOR_SOCKS_PROXY}, args=config.BROWSER_LAUNCH_ARGS
         )
         try:
@@ -239,10 +298,16 @@ def main(argv: list[str] | None = None) -> int:
             context = browser.new_context(storage_state=storage_state)
             page = context.new_page()
             try:
-                results = run_pipeline(page, source, resume=args.resume)
+                results = run_pipeline(
+                    page,
+                    source,
+                    resume=args.resume,
+                    pages_per_category=max(1, args.pages_per_category),
+                )
             except content_sample.CrawlInterrupted as exc:
                 # CLAUDE.md §3-3·§4.2-6: 자동 재로그인/자동 챌린지 우회는 하지 않는다.
-                # 체크포인트는 이미 crawl_site() 안에서 저장됐다 — 여기선 안내만 하고 멈춘다.
+                # 사이트 순회 중 중단이면 체크포인트가 crawl_site() 안에서 저장돼 있고, 홈페이지
+                # 챌린지로 중단이면 이전 체크포인트가 그대로 보존된다 — 여기선 안내만 하고 멈춘다.
                 logger.error(
                     "크롤링이 중단됐습니다 (%s). 결과가 불완전하므로 리포트를 만들지 않습니다. "
                     "VNC로 재로그인/챌린지 해결 후 --resume 옵션으로 이어서 실행하세요.",

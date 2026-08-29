@@ -124,6 +124,26 @@ def test_run_filters_account_menu_links_out_of_categories(tmp_path, monkeypatch,
     context.close()
 
 
+def test_discover_categories_rejects_external_and_executable_urls(browser):
+    context = browser.new_context()
+    page = context.new_page()
+    page.goto((FIXTURES_DIR / "forum_home_no_rules.html").as_uri())
+    page.set_content(
+        """
+        <nav>
+          <a href="forum_thread_list.html">Local board</a>
+          <a href="https://external.example/board">External board</a>
+          <a href="javascript:alert(1)">Executable link</a>
+        </nav>
+        """
+    )
+
+    categories = structure.discover_categories(page, {})
+
+    assert [category["text"] for category in categories] == ["Local board"]
+    context.close()
+
+
 def test_run_finds_rules_link_from_separate_selector_when_profile_specifies_it(
     tmp_path, monkeypatch, browser
 ):
@@ -175,4 +195,23 @@ def test_run_uses_registered_platform_profile_selector(tmp_path, monkeypatch, br
 
     assert result["어떤 곳인지"]["value"] == "General"
 
+    context.close()
+
+
+def test_discover_categories_falls_back_to_forum_url_patterns(browser):
+    context = browser.new_context()
+    page = context.new_page()
+    page.set_content(
+        """
+        <div class="unknown-theme">
+          <a href="/Forum-Sellers-Place">Sellers Place</a>
+          <a href="/Thread-Not-A-Category">A thread</a>
+          <a href="https://external.example/Forum-Other">External</a>
+        </div>
+        """
+    )
+
+    categories = structure.discover_categories(page, {})
+
+    assert [item["text"] for item in categories] == ["Sellers Place"]
     context.close()

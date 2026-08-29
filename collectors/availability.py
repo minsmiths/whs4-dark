@@ -12,6 +12,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 import config
+import snapshot
 
 if TYPE_CHECKING:
     from playwright.sync_api import Page
@@ -32,7 +33,11 @@ def run(page: Page, source: dict[str, Any]) -> dict[str, Any]:
         return result
     elapsed_ms = int((time.monotonic() - start) * 1000)
 
-    body_text = page.content().lower()
+    content = snapshot.capture_content(page)
+    if content is None:
+        result["상태"] = {"state": "BLOCKED", "reason": "페이지 이동이 계속되어 DOM 확인 실패"}
+        return result
+    body_text = content.lower()
 
     if any(kw in body_text for kw in config.SEIZED_BANNER_KEYWORDS):
         result["상태"] = {

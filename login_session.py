@@ -63,7 +63,8 @@ def main(argv: list[str] | None = None) -> int:
 
     with sync_playwright() as p:
         # BROWSER_LAUNCH_ARGS(config.py)에 샌드박스 비활성화 플래그를 절대 추가하지 않는다(§4.2-1).
-        browser = p.chromium.launch(
+        browser_type = getattr(p, config.BROWSER_ENGINE)
+        browser = browser_type.launch(
             headless=False,  # VNC로 사람이 직접 봐야 하므로 headed로 띄운다.
             proxy={"server": config.TOR_SOCKS_PROXY},
             args=config.BROWSER_LAUNCH_ARGS,

@@ -14,7 +14,7 @@ import datetime as dt
 import logging
 import re
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 import config
 import site_profiles
@@ -30,6 +30,16 @@ logger = logging.getLogger(__name__)
 # 아래 기본값 대신 그 값을 쓴다 (site_profiles.py 참고).
 NAV_LINK_SELECTOR = "nav a, .forumbit a"
 RULES_PAGE_KEYWORDS = ("rules", "faq", "register", "가입", "규칙")
+FORUM_HREF_RE = re.compile(
+    r"(?:/Forum-|/forums/[^/?#]+/?(?:$|[?#])|/cat/|/categor(?:y|ies)/|"
+    r"forumdisplay\.php\?[^#]*\bfid=|"
+    r"viewforum\.php\?[^#]*\bf=|/forum-\d+)",
+    re.IGNORECASE,
+)
+NON_CATEGORY_HREF_RE = re.compile(
+    r"(?:/threads?[-/]|\btid=|/posts?/|\bpage=|/page-\d|mark-read|/members?/|action=)",
+    re.IGNORECASE,
+)
 
 # myBB 계열 사이트는 로그인한 계정에 쪽지가 있으면 "규칙/FAQ" 페이지 본문 영역(rules_content_selector,
 # 보통 #content) 맨 위에도 계정 전용 쪽지함 알림 배너(#pm_notice)가 같이 렌더링된다. 이건 "규칙
@@ -45,6 +55,19 @@ def _source_id(source: dict[str, Any]) -> str:
     return source.get("name") or source.get("url", "unknown")
 
 
+def _is_crawlable_category_url(origin_url: str, target_url: str) -> bool:
+    """카테고리 재귀 탐색이 현재 사이트 밖이나 실행형 URL로 벗어나지 않게 한다."""
+    origin = urlsplit(origin_url)
+    target = urlsplit(target_url)
+    if target.scheme not in {"http", "https", "file"}:
+        # Playwright의 page.set_content() 단위 테스트/진단 화면은 about:blank에서 상대 URL을
+        # 만든다. 이 경우만 상대 경로를 허용하되 javascript:/data: 같은 실행형 scheme은 거른다.
+        return origin.scheme == "about" and not target.scheme
+    if origin.scheme == "file":
+        return target.scheme == "file"
+    return target.scheme in {"http", "https"} and target.netloc.lower() == origin.netloc.lower()
+
+
 def discover_categories(page: Page, profile: dict[str, str]) -> list[dict[str, str]]:
     """현재 page에서 카테고리(서브포럼) 링크를 [{"text":..., "url": 절대주소}, ...]로 뽑는다.
 
@@ -58,8 +81,22 @@ def discover_categories(page: Page, profile: dict[str, str]) -> list[dict[str, s
     except Exception:  # noqa: BLE001
         return []
 
+    needs_inference = not links or (
+        "nav_link_selector" not in profile
+        and not any(FORUM_HREF_RE.search(link.get_attribute("href") or "") for link in links)
+    )
+    if needs_inference:
+        inferred_links = [
+            link
+            for link in page.locator("a[href]").all()
+            if FORUM_HREF_RE.search(link.get_attribute("href") or "")
+            and not NON_CATEGORY_HREF_RE.search(link.get_attribute("href") or "")
+        ]
+        if inferred_links or not links:
+            links = inferred_links
+
     origin_url = page.url
-    seen_text: set[str] = set()
+    seen_urls: set[str] = set()
     categories: list[dict[str, str]] = []
     for link in links:
         try:
@@ -68,12 +105,18 @@ def discover_categories(page: Page, profile: dict[str, str]) -> list[dict[str, s
         except Exception:  # noqa: BLE001 - 개별 요소 stale 등
             logger.debug("nav 링크 파싱 실패, 건너뜀", exc_info=True)
             continue
-        if not text or text in seen_text:
+        if not text:
             continue
         if any(kw in text.lower() for kw in config.NAV_ACCOUNT_MENU_KEYWORDS):
             continue
-        seen_text.add(text)
-        categories.append({"text": text, "url": urljoin(origin_url, href) if href else ""})
+        target_url = urljoin(origin_url, href) if href else ""
+        if target_url and not _is_crawlable_category_url(origin_url, target_url):
+            logger.debug("외부/비탐색 카테고리 URL 제외: %s", target_url)
+            continue
+        if target_url in seen_urls:
+            continue
+        seen_urls.add(target_url)
+        categories.append({"text": text, "url": target_url})
     return categories
 
 

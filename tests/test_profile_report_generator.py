@@ -6,6 +6,8 @@ dict만 사용한다.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import profile_report_generator as prg
 
 
@@ -17,8 +19,16 @@ def _base_results(**overrides):
             "observed_at": "2026-08-24",
             "source": "홈페이지 nav 1단계 depth",
         },
-        "규모": {"value": "1000 Total Posts", "observed_at": "2026-08-24", "source": "포럼 통계 영역"},
-        "어니언 주소": {"value": "abc123.onion", "observed_at": "2026-08-24", "source": "본문 정규식 매칭 (후보)"},
+        "규모": {
+            "value": "1000 Total Posts",
+            "observed_at": "2026-08-24",
+            "source": "포럼 통계 영역",
+        },
+        "어니언 주소": {
+            "value": "abc123.onion",
+            "observed_at": "2026-08-24",
+            "source": "본문 정규식 매칭 (후보)",
+        },
         "_사용_언어_최다": {"lang": "en", "pct": 67, "top2": [("en", 67), ("de", 11)]},
         "사용 언어": {"value": "en 67건(67%)", "observed_at": "2026-08-24", "source": "langdetect"},
         "_운영자_후보": {"handles": ["Knox", "Lucifer"], "categories": ["Announcements"]},
@@ -162,3 +172,33 @@ def test_write_report_produces_single_file(tmp_path):
     assert content.count("darkforums 위협 프로파일") == 1
     assert "darkforums 조사 결과" not in content  # 공식 23칸 스키마 헤더는 이제 안 나온다
     assert out_path == str(md_files[0])
+
+
+def test_write_report_appends_crawl_completion_audit(tmp_path):
+    results = {
+        "_crawl_completion": {
+            "complete": False,
+            "categories": 3,
+            "pages": 11,
+            "posts": 42,
+            "failures": 1,
+            "pages_per_category": 5,
+        },
+        "_crawl_failures": [
+            {
+                "category": "Sellers Place",
+                "page": 4,
+                "url": "https://example.test/p4",
+                "reason": "접속 실패",
+            }
+        ],
+    }
+
+    output = prg.write_report(
+        {"name": "example", "url": "https://example.test"}, results, str(tmp_path)
+    )
+    text = Path(output).read_text(encoding="utf-8")
+
+    assert "## 크롤링 완료 감사" in text
+    assert "상태: 부분 완료" in text
+    assert "Sellers Place p4" in text

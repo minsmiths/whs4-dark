@@ -154,6 +154,23 @@ def generate_markdown(source: dict[str, Any], collector_results: dict[str, dict[
         for entry in crawled_urls:
             lines.append(f"- {entry.get('category', '?')} p{entry.get('page', '?')}: {entry.get('url', '')}")
 
+    completion = collector_results.get("_crawl_completion")
+    if completion:
+        state = "완료" if completion.get("complete") else "부분 완료"
+        lines += [
+            "",
+            "## 크롤링 완료 감사",
+            f"- 상태: {state}",
+            f"- 방문 카테고리: {completion.get('categories', 0)}개",
+            f"- 방문 목록 페이지: {completion.get('pages', 0)}개",
+            f"- 수집 헤드라인: {completion.get('posts', 0)}개",
+            f"- 실패: {completion.get('failures', 0)}건",
+        ]
+        for failure in collector_results.get("_crawl_failures", []):
+            lines.append(
+                f"  - {failure.get('category', '?')} p{failure.get('page', '?')}: "
+                f"{failure.get('reason', '알 수 없음')} ({failure.get('url', '')})"
+            )
     return "\n".join(lines) + "\n"
 
 

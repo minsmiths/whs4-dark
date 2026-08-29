@@ -185,12 +185,36 @@ def generate_profile_markdown(source: dict[str, Any], results: dict[str, Any]) -
     return "\n".join(lines) + "\n"
 
 
+def _crawl_audit_markdown(results: dict[str, Any]) -> str:
+    completion = results.get("_crawl_completion")
+    if not completion:
+        return ""
+    state = "완료" if completion.get("complete") else "부분 완료"
+    lines = [
+        "",
+        "## 크롤링 완료 감사",
+        "",
+        f"- 상태: {state}",
+        f"- 방문 카테고리: {completion.get('categories', 0)}개",
+        f"- 방문 목록 페이지: {completion.get('pages', 0)}개",
+        f"- 수집 헤드라인: {completion.get('posts', 0)}개",
+        f"- 카테고리당 페이지 제한: {completion.get('pages_per_category', 0)}페이지",
+        f"- 실패: {completion.get('failures', 0)}건",
+    ]
+    for failure in results.get("_crawl_failures", []):
+        lines.append(
+            f"  - {failure.get('category', '?')} p{failure.get('page', '?')}: "
+            f"{failure.get('reason', '알 수 없음')} ({failure.get('url', '')})"
+        )
+    return "\n".join(lines) + "\n"
+
+
 def write_report(source: dict[str, Any], results: dict[str, Any], output_dir: str) -> str:
     """이 템플릿을 output/<source_id>_<timestamp>.md 로 저장한다 — 파이프라인의 유일한 산출물
     (CLAUDE.md §4.1 "결과 MD 파일 1개")."""
     from pathlib import Path
 
-    profile_md = generate_profile_markdown(source, results)
+    profile_md = generate_profile_markdown(source, results) + _crawl_audit_markdown(results)
 
     source_id = source.get("name") or source.get("url", "unknown")
     safe_id = "".join(c for c in source_id if c.isalnum() or c in ("-", "_", ".")) or "unknown"

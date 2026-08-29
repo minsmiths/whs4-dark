@@ -30,6 +30,7 @@ import challenge
 import config
 import site_profiles
 import snapshot
+import structure_diagnostics
 
 try:
     from langdetect import DetectorFactory, LangDetectException, detect
@@ -55,6 +56,15 @@ POST_ROW_SELECTOR = ".thread-list .thread"
 POST_TITLE_SELECTOR = ".title"
 POST_AUTHOR_SELECTOR = ".author"
 POST_DATE_SELECTOR = "time"
+THREAD_HREF_RE = re.compile(
+    r"(?:/Thread-|thread-\d+|[?&]tid=\d+|/threads?/|viewtopic\.php\?[^#]*[?&]?t=\d+|"
+    r"/Announcement-|\baid=\d+)",
+    re.IGNORECASE,
+)
+THREAD_ACTION_RE = re.compile(
+    r"(?:action=(?:lastpost|newpost|thread_|nextnewest|nextoldest|whoposted)|[?&]page=|#pid|/post-\d+)",
+    re.IGNORECASE,
+)
 # 이 프로젝트는 darkforums 한 곳만을 위한 도구가 아니다 — 승인 대상이 늘어날 때마다 매번
 # site_profiles.py에 selector를 새로 등록해야만 페이지네이션이 동작하면 안 된다. 그래서
 # 페이지네이션 "다음 페이지" 탐지는 두 단계로 한다:
@@ -142,6 +152,31 @@ def collect_posts(
     date_selector = profile.get("post_date_selector", POST_DATE_SELECTOR)
 
     rows = page.locator(row_selector).all()[:limit]
+    if not rows:
+        links = [
+            link
+            for link in page.locator("a[href]").all()
+            if THREAD_HREF_RE.search(link.get_attribute("href") or "")
+            and not THREAD_ACTION_RE.search(link.get_attribute("href") or "")
+            and (link.inner_text() or "").strip()
+        ][:limit]
+        seen: set[str] = set()
+        inferred_posts: list[dict[str, str]] = []
+        for link in links:
+            href = urljoin(page.url, link.get_attribute("href") or "")
+            canonical = href.split("#", 1)[0]
+            if canonical in seen:
+                continue
+            seen.add(canonical)
+            inferred_posts.append(
+                {
+                    "title": (link.inner_text() or "").strip(),
+                    "author": "",
+                    "date": "",
+                    "url": href,
+                }
+            )
+        return inferred_posts
     posts = []
     for row in rows:
         try:
@@ -399,6 +434,16 @@ def _load_checkpoint(source_id: str) -> dict[str, Any] | None:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def has_checkpoint(source_id: str) -> bool:
+    """resume 경로 진입 판단용(investigate.run_pipeline).
+
+    --resume 인데 체크포인트가 있으면, 이번 실행에서 홈페이지가 챌린지로 막혀 카테고리
+    시드를 못 뽑았더라도 crawl_site()를 체크포인트 큐로 이어서 돌게 한다 — 안 그러면
+    매 실행이 비-재개 단일페이지 폴백으로 빠져 빈 리포트만 반복된다(2026-08-27 cracked.st).
+    """
+    return _checkpoint_path(source_id).exists()
+
+
 def _save_checkpoint(source_id: str, state: dict[str, Any]) -> None:
     path = _checkpoint_path(source_id)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -446,6 +491,7 @@ def crawl_site(
     category_seed: list[dict[str, str]],
     *,
     resume: bool = False,
+    pages_per_category: int | None = None,
 ) -> dict[str, Any]:
     """홈페이지에서 발견한 모든 카테고리(하위 서브포럼 포함)를 재귀적으로 다 돌며 게시글
     헤드라인(제목/작성자/날짜)만 모은다 — 개별 게시글 본문 페이지에는 들어가지 않는다.
@@ -462,6 +508,7 @@ def crawl_site(
     source_id = source.get("name") or source.get("url", "unknown")
     profile = site_profiles.get_profile(source)
     origin_url = page.url
+    page_limit = max(1, pages_per_category or config.SITE_MAP_MAX_PAGES_PER_CATEGORY)
 
     checkpoint = _load_checkpoint(source_id) if resume else None
     if checkpoint:
@@ -471,6 +518,7 @@ def crawl_site(
         visited_categories: list[str] = checkpoint["visited_categories"]
         # .get(..., []): 이 필드가 없던 예전 체크포인트에서 --resume 해도 KeyError 없이 진행되게.
         visited_urls: list[dict[str, str]] = checkpoint.get("visited_urls", [])
+        failures: list[dict[str, Any]] = checkpoint.get("failures", [])
         logger.info("체크포인트에서 이어서 진행: 방문 %d개, 대기 %d개", len(visited), len(queue))
     else:
         queue = list(category_seed)
@@ -478,6 +526,11 @@ def crawl_site(
         posts = []
         visited_categories = []
         visited_urls = []
+        failures = []
+
+    post_keys = {
+        post.get("url") or f"{post.get('category', '')}\0{post.get('title', '')}" for post in posts
+    }
 
     def checkpoint_state(remaining_queue: list[dict[str, str]]) -> dict[str, Any]:
         return {
@@ -486,6 +539,7 @@ def crawl_site(
             "posts": posts,
             "visited_categories": visited_categories,
             "visited_urls": visited_urls,
+            "failures": failures,
         }
 
     # 카테고리 목록/게시글 selector(post_row_selector 등)는 실제 마크업을 봐야 채울 수 있다
@@ -499,6 +553,12 @@ def crawl_site(
     # total은 고정하지 않고, 방문+대기 합계로 매 카테고리마다 갱신해 대략치만 보여준다.
     page_bar = tqdm(desc=f"{source_id} 사이트맵 순회", unit="page")
 
+    # goto가 예외로 죽는 카테고리가 연속으로 몇 개인지 센다. DDoS-Guard 같은 차단이 응답을
+    # 안 주고 타임아웃으로만 끝나면 아래 except가 challenge.detect도 못 돌린 채 하나씩
+    # "접속 실패"로 넘길 뿐이라, 사이트 전체(수백 개)를 다 갈아넣고도 게시글 0건으로 조용히
+    # 끝난다(2026-08-27 cracked.st). 일정 횟수 연속 실패하면 체크포인트 남기고 중단한다.
+    consecutive_category_failures = 0
+
     try:
         while queue:
             entry = queue.pop(0)
@@ -508,11 +568,36 @@ def crawl_site(
 
             _random_delay()
             try:
-                page.goto(url, timeout=config.PAGE_LOAD_TIMEOUT_MS, wait_until=config.PAGE_WAIT_UNTIL)
+                response = page.goto(
+                    url, timeout=config.PAGE_LOAD_TIMEOUT_MS, wait_until=config.PAGE_WAIT_UNTIL
+                )
             except Exception:  # noqa: BLE001 - 개별 카테고리 접속 실패는 건너뛰고 계속 진행
-                logger.warning("카테고리 접속 실패, 건너뜀: %s", url)
+                logger.warning("카테고리 접속 실패: %s", url)
+                # goto가 예외를 던지면 아래 challenge.detect(response)까지 못 가지만, 그 시점의
+                # page 상태(about:blank거나 부분 로드된 차단 페이지)라도 한 번 본다 — 응답이
+                # 안 떨어지고 타임아웃으로만 끝나는 차단을 "그냥 접속 실패"로 흘리지 않기 위해서.
+                reason = challenge.detect(page)
+                if reason:
+                    # 차단 화면이 실제로 보인다 — 이 URL은 visited로 태우지 않고 큐 맨 앞에
+                    # 되돌려서, 사람이 VNC로 푼 뒤 --resume 하면 진짜로 다시 시도하게 한다(§3-3).
+                    _save_checkpoint(source_id, checkpoint_state([entry, *queue]))
+                    raise CrawlInterrupted(f"챌린지 감지: {reason} ({url})")
+                failures.append(
+                    {"category": entry.get("text", url), "page": 1, "url": url, "reason": "접속 실패"}
+                )
                 visited.add(url)
+                consecutive_category_failures += 1
+                if consecutive_category_failures >= config.CHALLENGE_MAX_CONSECUTIVE_FAILURES:
+                    # 챌린지 화면도 안 잡히는데 연속으로 죽는다 = 회선이 끊겼거나 감지 못한 차단.
+                    # 실패 URL은 이미 visited/failures로 넘겼으니 --resume 하면 그 다음부터 이어간다.
+                    _save_checkpoint(source_id, checkpoint_state(queue))
+                    raise CrawlInterrupted(
+                        f"카테고리 접속 연속 {consecutive_category_failures}회 실패 — 회선 또는 "
+                        f"미감지 차단 의심 (마지막: {url})"
+                    )
                 continue
+
+            consecutive_category_failures = 0
 
             # 챌린지 감지는 상시로 한다(§4.2-6). 세션 만료 자체는 여기서 다시 확인하지 않는다
             # — run_pipeline()이 이미 크롤링 시작 시점에 한 번 확인·기록했고(M1 완료 기준),
@@ -521,7 +606,7 @@ def crawl_site(
             #
             # 주의: 챌린지로 막힌 URL은 visited에 아직 넣지 않는다 — 체크포인트 큐 맨 앞에
             # 되돌려서, --resume 시 "이미 방문함"으로 건너뛰지 않고 진짜로 다시 시도하게 한다.
-            reason = challenge.detect(page)
+            reason = challenge.detect(page, response)
             if reason:
                 _save_checkpoint(source_id, checkpoint_state([entry, *queue]))
                 raise CrawlInterrupted(f"챌린지 감지: {reason} ({url})")
@@ -532,6 +617,7 @@ def crawl_site(
 
             if not snapshotted_first_category:
                 snapshot.save_snapshot(page, source_id, "sitemap_first_category")
+                structure_diagnostics.save(page, source_id, "sitemap_first_category_diagnostic")
                 snapshotted_first_category = True
 
             # 이 카테고리 안에 또 하위 서브포럼이 있으면 큐에 추가한다(재귀 — "수집된 모든
@@ -547,15 +633,18 @@ def crawl_site(
             category_name = entry.get("text", url)
             visited_urls.append({"category": category_name, "page": 1, "url": url})
             next_selector = profile.get("pagination_next_selector", PAGINATION_NEXT_SELECTOR)
-            for page_num in range(1, config.SITE_MAP_MAX_PAGES_PER_CATEGORY + 1):
+            for page_num in range(1, page_limit + 1):
                 for post in collect_posts(page, source, limit=config.CONTENT_SAMPLE_SIZE):
                     post["category"] = category_name
                     post["page"] = page_num
-                    posts.append(post)
+                    post_key = post.get("url") or f"{category_name}\0{post.get('title', '')}"
+                    if post_key not in post_keys:
+                        post_keys.add(post_key)
+                        posts.append(post)
                 page_bar.set_postfix_str(f"{category_name} p{page_num}")
                 page_bar.update(1)
 
-                if page_num >= config.SITE_MAP_MAX_PAGES_PER_CATEGORY:
+                if page_num >= page_limit:
                     break
                 next_href = _find_next_page_href(page, next_selector, page_num + 1)
                 if not next_href:
@@ -566,14 +655,28 @@ def crawl_site(
 
                 _random_delay()
                 try:
-                    page.goto(
+                    response = page.goto(
                         next_url, timeout=config.PAGE_LOAD_TIMEOUT_MS, wait_until=config.PAGE_WAIT_UNTIL
                     )
                 except Exception:  # noqa: BLE001 - 다음 페이지 접속 실패는 이 카테고리만 중단
-                    logger.warning("페이지네이션 접속 실패, 이 카테고리는 여기까지: %s", next_url)
+                    logger.warning("페이지네이션 접속 실패: %s", next_url)
+                    # 카테고리 첫 페이지와 같은 이유로, goto가 예외로 죽은 시점의 page도 한 번
+                    # 챌린지인지 본다 — 차단이면 이 카테고리만 조용히 끊고 넘어갈 게 아니라 멈춘다.
+                    reason = challenge.detect(page)
+                    if reason:
+                        _save_checkpoint(source_id, checkpoint_state(queue))
+                        raise CrawlInterrupted(f"챌린지 감지: {reason} ({next_url})")
+                    failures.append(
+                        {
+                            "category": category_name,
+                            "page": page_num + 1,
+                            "url": next_url,
+                            "reason": "접속 실패",
+                        }
+                    )
                     break
 
-                reason = challenge.detect(page)
+                reason = challenge.detect(page, response)
                 if reason:
                     _save_checkpoint(source_id, checkpoint_state(queue))
                     raise CrawlInterrupted(f"챌린지 감지: {reason} ({next_url})")
@@ -594,10 +697,19 @@ def crawl_site(
 
     sample_note = (
         f"사이트 전체 {len(visited_categories)}개 카테고리 × 최대 "
-        f"{config.SITE_MAP_MAX_PAGES_PER_CATEGORY}페이지 헤드라인 기준"
+        f"{page_limit}페이지 헤드라인 기준"
     )
     result = summarize_posts(posts, sample_note)
     result["_표본_게시글"] = posts
     result["_사이트맵_방문_카테고리"] = visited_categories
     result["_사이트맵_방문_URL"] = visited_urls  # report_generator가 MD에 감사(audit)용으로 남김
+    result["_crawl_failures"] = failures
+    result["_crawl_completion"] = {
+        "complete": not failures,
+        "categories": len(visited_categories),
+        "pages": len(visited_urls),
+        "posts": len(posts),
+        "failures": len(failures),
+        "pages_per_category": page_limit,
+    }
     return result
